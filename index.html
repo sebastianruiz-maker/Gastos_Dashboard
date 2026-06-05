@@ -3,12 +3,38 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Gastos · Dashboard Personal</title>
+<title>Gastos · Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyApD2UHLVVr5daJlVoKhQBudvY2ki7aEXI",
+  authDomain: "gastos-dashboard-d5a33.firebaseapp.com",
+  projectId: "gastos-dashboard-d5a33",
+  storageBucket: "gastos-dashboard-d5a33.firebasestorage.app",
+  messagingSenderId: "64871524658",
+  appId: "1:64871524658:web:71d37bc78ab9f6b59f8f2b"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// ── Exponer al scope global para que el resto del código pueda usarlos ──
+window._fb = { auth, db, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, doc, getDoc, setDoc, onSnapshot };
+window._fbReady = true;
+window.dispatchEvent(new Event('fbReady'));
+</script>
 <style>
   /* ============================================================
      PALETA — TEMAS OSCURO Y CLARO
@@ -1801,21 +1827,254 @@
     .bottom-nav { display: none; }
   }
 </style>
+<style>
+  /* ── LOGIN SCREEN ── */
+  #loginScreen {
+    position: fixed; inset: 0; z-index: 1000;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 0;
+  }
+  .login-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 48px 40px;
+    max-width: 380px; width: 90%;
+    text-align: center;
+    box-shadow: var(--shadow);
+  }
+  .login-logo {
+    font-family: var(--serif);
+    font-size: 38px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .login-logo em { color: var(--accent); font-style: normal; }
+  .login-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 36px;
+  }
+  .login-btn-google {
+    width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding: 14px 20px;
+    background: var(--bg-3);
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .login-btn-google:hover {
+    background: var(--bg-4);
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
+  .login-note {
+    margin-top: 20px;
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.5;
+  }
+  .login-loading {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-3);
+    margin-top: 16px;
+    display: none;
+  }
+
+  /* ── WIZARD ONBOARDING ── */
+  #wizardScreen {
+    position: fixed; inset: 0; z-index: 900;
+    background: var(--bg);
+    display: none;
+    align-items: center; justify-content: center;
+    overflow-y: auto; padding: 20px;
+  }
+  #wizardScreen.visible { display: flex; }
+  .wizard-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 40px 36px;
+    max-width: 520px; width: 100%;
+    box-shadow: var(--shadow);
+  }
+  .wizard-step { display: none; }
+  .wizard-step.active { display: block; }
+  .wizard-step-num {
+    font-family: var(--mono); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.15em;
+    color: var(--accent); margin-bottom: 8px;
+  }
+  .wizard-title {
+    font-family: var(--serif); font-size: 26px; font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .wizard-desc {
+    font-size: 13px; color: var(--text-2); line-height: 1.6; margin-bottom: 28px;
+  }
+  .wizard-field { margin-bottom: 16px; }
+  .wizard-field label {
+    display: block; font-family: var(--mono); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text-3); margin-bottom: 6px;
+  }
+  .wizard-field input {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    background: var(--bg-3); border: 1px solid var(--line-2);
+    color: var(--text); font-size: 14px; box-sizing: border-box;
+  }
+  .persons-chips-editor {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;
+  }
+  .persons-chips-editor .pchip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg-3); border: 1px solid var(--line-2);
+    border-radius: 8px; padding: 6px 10px;
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    text-transform: uppercase;
+  }
+  .persons-chips-editor .pchip button {
+    background: none; border: none; color: var(--text-3);
+    cursor: pointer; padding: 0; font-size: 14px; line-height: 1;
+  }
+  .wizard-add-row {
+    display: flex; gap: 8px;
+  }
+  .wizard-add-row input { flex: 1; }
+  .wizard-actions {
+    display: flex; justify-content: flex-end; gap: 10px; margin-top: 28px;
+  }
+
+  /* ── USER AVATAR en header ── */
+  .user-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 2px solid var(--line-2);
+    cursor: pointer; object-fit: cover;
+    transition: border-color 0.15s;
+  }
+  .user-avatar:hover { border-color: var(--accent); }
+  .user-menu {
+    position: absolute; top: calc(100% + 8px); right: 0;
+    background: var(--bg-2); border: 1px solid var(--line-2);
+    border-radius: 10px; padding: 8px; min-width: 180px;
+    box-shadow: var(--shadow); z-index: 100; display: none;
+  }
+  .user-menu.open { display: block; }
+  .user-menu-name {
+    font-size: 12px; font-weight: 600; padding: 6px 10px 2px;
+    color: var(--text-2);
+  }
+  .user-menu-email {
+    font-size: 10px; font-family: var(--mono); color: var(--text-3);
+    padding: 0 10px 8px; border-bottom: 1px solid var(--line);
+    margin-bottom: 6px;
+  }
+  .user-menu button {
+    width: 100%; text-align: left; padding: 8px 10px;
+    border-radius: 6px; font-size: 13px;
+  }
+</style>
 </head>
 <body data-theme="dark">
 
-<div class="app">
+<!-- ── PANTALLA DE LOGIN ── -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">Gastos<em>·</em>App</div>
+    <div class="login-sub">Dashboard personal de gastos</div>
+    <button class="login-btn-google" onclick="doGoogleLogin()">
+      <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Entrar con Google
+    </button>
+    <div class="login-note">Tus datos se guardan en la nube,<br>solo tú puedes verlos.</div>
+    <div class="login-loading" id="loginLoading">Iniciando sesión...</div>
+  </div>
+</div>
+
+<!-- ── WIZARD DE CONFIGURACIÓN INICIAL ── -->
+<div id="wizardScreen">
+  <div class="wizard-card">
+    <!-- Step 1: bienvenida + nombre -->
+    <div class="wizard-step active" id="wStep1">
+      <div class="wizard-step-num">Paso 1 de 3</div>
+      <div class="wizard-title">Bienvenido 👋</div>
+      <div class="wizard-desc">Vamos a configurar tu dashboard. Solo toma un minuto. Primero, ¿cómo quieres llamar a tu espacio?</div>
+      <div class="wizard-field">
+        <label>Nombre del dashboard</label>
+        <input type="text" id="wDashName" placeholder="Ej: Gastos Familia Ruiz" maxlength="40">
+      </div>
+      <div class="wizard-actions">
+        <button class="primary" onclick="wizardNext(1)">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: personas -->
+    <div class="wizard-step" id="wStep2">
+      <div class="wizard-step-num">Paso 2 de 3</div>
+      <div class="wizard-title">¿Quiénes pagan? 👥</div>
+      <div class="wizard-desc">Agrega las personas cuyos gastos vas a registrar. Los gastos se asignan a cada una.</div>
+      <div class="persons-chips-editor" id="wPersonsList"></div>
+      <div class="wizard-add-row">
+        <input type="text" id="wPersonInput" placeholder="Nombre (ej: DIEGO)" maxlength="12"
+          onkeydown="if(event.key==='Enter') addWizardPerson()">
+        <button class="primary" onclick="addWizardPerson()">+ Agregar</button>
+      </div>
+      <div class="wizard-actions">
+        <button class="ghost" onclick="wizardBack(2)">← Atrás</button>
+        <button class="primary" onclick="wizardNext(2)">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: moneda y listo -->
+    <div class="wizard-step" id="wStep3">
+      <div class="wizard-step-num">Paso 3 de 3</div>
+      <div class="wizard-title">Último detalle 🎯</div>
+      <div class="wizard-desc">¿Con qué moneda trabajas? Puedes cambiar esto después.</div>
+      <div class="wizard-field">
+        <label>Moneda principal</label>
+        <select id="wCurrency" style="width:100%; padding:10px 12px; border-radius:8px; background:var(--bg-3); border:1px solid var(--line-2); color:var(--text); font-size:14px">
+          <option value="CLP">CLP — Peso chileno ($)</option>
+          <option value="ARS">ARS — Peso argentino ($)</option>
+          <option value="USD">USD — Dólar (US$)</option>
+          <option value="EUR">EUR — Euro (€)</option>
+          <option value="MXN">MXN — Peso mexicano ($)</option>
+          <option value="COP">COP — Peso colombiano ($)</option>
+        </select>
+      </div>
+      <div class="wizard-actions">
+        <button class="ghost" onclick="wizardBack(3)">← Atrás</button>
+        <button class="primary" onclick="wizardFinish()">¡Listo, empezar! →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="app" id="mainApp" style="display:none">
 
   <!-- HEADER -->
   <header class="brand">
     <div>
-      <h1 class="brand-title">Gastos<em>·</em>Personal</h1>
+      <h1 class="brand-title" id="headerTitle">Gastos<em>·</em>Personal</h1>
       <div class="brand-sub">Dashboard de facturación · Tarjeta de Crédito</div>
     </div>
-    <div class="brand-actions">
+    <div class="brand-actions" style="position:relative">
       <button class="ghost" onclick="document.getElementById('fileInput').click()">
         <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
-        Cargar Excel
+        <span class="btn-label">Cargar Excel</span>
       </button>
       <button class="ghost icon-btn" title="Cambiar tema" onclick="toggleTheme()">
         <svg class="icon" id="themeIcon" viewBox="0 0 24 24"></svg>
@@ -1829,6 +2088,26 @@
       <button class="ghost icon-btn" title="Configuración" onclick="openSettings()">
         <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
+      <!-- Avatar usuario -->
+      <div style="position:relative">
+        <img id="userAvatar" class="user-avatar" src="" alt="Usuario" onclick="toggleUserMenu()" style="display:none">
+        <div class="user-menu" id="userMenu">
+          <div class="user-menu-name" id="userMenuName"></div>
+          <div class="user-menu-email" id="userMenuEmail"></div>
+          <button class="ghost" onclick="openSyncModal()">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Exportar datos
+          </button>
+          <button class="ghost" onclick="document.getElementById('importInput').click(); toggleUserMenu()">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            Importar datos
+          </button>
+          <button class="ghost" style="color:var(--red)" onclick="doSignOut()">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
     </div>
     <input type="file" id="fileInput" accept=".xls,.xlsx" multiple onchange="handleFileLoad(event)">
     <input type="file" id="importInput" accept=".json" onchange="importData(event)">
@@ -1845,12 +2124,9 @@
   <!-- EMPTY STATE -->
   <div id="emptyState" class="empty-state" style="display:none">
     <h2>Comienza cargando tu primer estado de cuenta</h2>
-    <p>Arrastra acá los archivos <code>.xls</code> o <code>.xlsx</code> de tu facturación mensual, o haz clic en "Cargar Excel" arriba. La app detecta la estructura, categoriza lo que pueda, extrae tus comentarios entre paréntesis y resalta lo que necesita tu input.</p>
+    <p>Arrastra acá los archivos <code>.xls</code> o <code>.xlsx</code> de tu facturación mensual, o haz clic en "Cargar Excel" arriba.</p>
     <button class="primary" onclick="document.getElementById('fileInput').click()">Cargar archivos</button>
-    <p style="margin-top:24px; font-size:11px; color:var(--text-3)">Tus datos NUNCA salen de tu navegador. Todo se guarda localmente.</p>
   </div>
-
-  <!-- TAB 1 — VISTA MENSUAL -->
   <div class="tab-content active" id="tab-month">
     <!-- Toolbar -->
     <div class="toolbar" id="monthToolbar" style="display:none">
@@ -2595,54 +2871,8 @@ const INSTRUMENT_LABELS = {
   OTROS: 'Otros'
 };
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const s = JSON.parse(JSON.stringify(DEFAULT_STATE));
-      s.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
-      s.rules = {...INITIAL_RULES};
-      s.savings = {
-        plan: { startDate: '2026-01-01', endDate: '2026-12-01', usdRate: 927.7 },
-        goals: INITIAL_SAVINGS_GOALS.map(g => ({ ...g, id: 'g_' + Math.random().toString(36).slice(2, 10), createdAt: new Date().toISOString() }))
-      };
-      return s;
-    }
-    const s = JSON.parse(raw);
-    if (!s.categories || typeof s.categories !== 'object' || Array.isArray(s.categories)) {
-      s.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
-    }
-    // Asegurar que existan todos los grupos
-    GROUP_KEYS.forEach(k => {
-      if (!s.categories[k]) s.categories[k] = [...(INITIAL_CATEGORIES[k] || [])];
-    });
-    if (!s.rules) s.rules = {...INITIAL_RULES};
-    if (!s.personRules) s.personRules = {};
-    if (!s.persons) s.persons = [...DEFAULT_STATE.persons];
-    if (!s.months) s.months = {};
-    if (!s.savings) {
-      s.savings = {
-        plan: { startDate: '2026-01-01', endDate: '2026-12-01', usdRate: 927.7 },
-        goals: INITIAL_SAVINGS_GOALS.map(g => ({ ...g, id: 'g_' + Math.random().toString(36).slice(2, 10), createdAt: new Date().toISOString() }))
-      };
-    }
-    if (!s.savings.goals) s.savings.goals = [];
-    if (!s.savings.plan) s.savings.plan = { startDate: null, endDate: null, usdRate: null };
-
-    // Migrar desde v1 si es necesario
-    if (s.version !== 2) migrateFromV1(s);
-    return s;
-  } catch (e) {
-    console.error('Error cargando estado:', e);
-    const s = JSON.parse(JSON.stringify(DEFAULT_STATE));
-    s.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
-    s.rules = {...INITIAL_RULES};
-    return s;
-  }
-}
-
+// ── FIREBASE STATE MANAGEMENT ──────────────────────────────────
 function migrateFromV1(s) {
-  // Mapear movimientos viejos al nuevo formato
   Object.values(s.months || {}).forEach(m => {
     (m.movements || []).forEach(mv => {
       if (mv.category && !mv.category.includes(' > ')) {
@@ -2655,15 +2885,198 @@ function migrateFromV1(s) {
   s.version = 2;
 }
 
-let state = loadState();
+let _currentUser = null;
+let _saveTimeout = null;
 
-function saveState() {
+async function saveState() {
+  if (!_currentUser) return;
+  // Debounce: esperar 800ms de inactividad antes de guardar
+  clearTimeout(_saveTimeout);
+  _saveTimeout = setTimeout(async () => {
+    try {
+      const { db, doc, setDoc } = window._fb;
+      await setDoc(doc(db, 'users', _currentUser.uid), { state: JSON.stringify(state), updatedAt: new Date().toISOString() });
+    } catch (e) {
+      console.error('Error guardando en Firebase:', e);
+      toast('⚠ Error guardando datos');
+    }
+  }, 800);
+}
+
+async function loadStateFromFirebase(uid) {
+  const { db, doc, getDoc } = window._fb;
+  const snap = await getDoc(doc(db, 'users', uid));
+  if (snap.exists()) {
+    const raw = snap.data().state;
+    return raw ? JSON.parse(raw) : null;
+  }
+  return null;
+}
+
+function buildFreshState(wizardData) {
+  const s = JSON.parse(JSON.stringify(DEFAULT_STATE));
+  s.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
+  s.rules = { ...INITIAL_RULES };
+  s.persons = wizardData.persons || ['YO', 'OTRO'];
+  s.dashName = wizardData.dashName || 'Mi Dashboard';
+  s.currency = wizardData.currency || 'CLP';
+  s.savings = { plan: { usdRate: null, year: new Date().getFullYear() }, goals: [], payments: {} };
+  return s;
+}
+
+// ── AUTENTICACIÓN ───────────────────────────────────────────────
+async function doGoogleLogin() {
+  const { auth, GoogleAuthProvider, signInWithPopup } = window._fb;
+  document.getElementById('loginLoading').style.display = 'block';
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
   } catch (e) {
-    toast('Error guardando: ' + e.message);
+    document.getElementById('loginLoading').style.display = 'none';
+    toast('Error al iniciar sesión: ' + e.message);
   }
 }
+
+async function doSignOut() {
+  const { auth, signOut } = window._fb;
+  await signOut(auth);
+  toggleUserMenu();
+  document.getElementById('mainApp').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+}
+
+function toggleUserMenu() {
+  document.getElementById('userMenu').classList.toggle('open');
+}
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('userMenu');
+  if (menu && !menu.contains(e.target) && !document.getElementById('userAvatar')?.contains(e.target)) {
+    menu.classList.remove('open');
+  }
+});
+
+// ── WIZARD ──────────────────────────────────────────────────────
+const _wizardPersons = [];
+
+function wizardNext(step) {
+  if (step === 1) {
+    const name = document.getElementById('wDashName').value.trim();
+    if (!name) { toast('Escribe un nombre para continuar'); return; }
+    renderWizardPersons();
+  }
+  if (step === 2) {
+    if (_wizardPersons.length === 0) { toast('Agrega al menos una persona'); return; }
+  }
+  document.getElementById(`wStep${step}`).classList.remove('active');
+  document.getElementById(`wStep${step + 1}`).classList.add('active');
+}
+
+function wizardBack(step) {
+  document.getElementById(`wStep${step}`).classList.remove('active');
+  document.getElementById(`wStep${step - 1}`).classList.add('active');
+}
+
+function addWizardPerson() {
+  const input = document.getElementById('wPersonInput');
+  const name = input.value.trim().toUpperCase();
+  if (!name) return;
+  if (_wizardPersons.includes(name)) { toast('Ya existe'); return; }
+  _wizardPersons.push(name);
+  input.value = '';
+  renderWizardPersons();
+}
+
+function removeWizardPerson(name) {
+  const i = _wizardPersons.indexOf(name);
+  if (i >= 0) _wizardPersons.splice(i, 1);
+  renderWizardPersons();
+}
+
+function renderWizardPersons() {
+  document.getElementById('wPersonsList').innerHTML = _wizardPersons.map(p =>
+    `<div class="pchip">${p}<button onclick="removeWizardPerson('${p}')">×</button></div>`
+  ).join('');
+}
+
+async function wizardFinish() {
+  const wizardData = {
+    dashName: document.getElementById('wDashName').value.trim(),
+    persons: [..._wizardPersons],
+    currency: document.getElementById('wCurrency').value
+  };
+  state = buildFreshState(wizardData);
+  await saveState();
+  document.getElementById('wizardScreen').classList.remove('visible');
+  startApp();
+}
+
+// ── INICIALIZACIÓN ──────────────────────────────────────────────
+function startApp() {
+  const name = state.dashName || 'Gastos·Personal';
+  document.getElementById('headerTitle').innerHTML = name.replace('·', '<em>·</em>');
+  document.title = name;
+  document.getElementById('mainApp').style.display = 'block';
+  document.getElementById('loginScreen').style.display = 'none';
+  const savedTheme = state.theme || 'dark';
+  setTheme(savedTheme);
+  renderAll();
+}
+
+// Esperar a que Firebase esté listo
+function onFbReady() {
+  const { auth, onAuthStateChanged } = window._fb;
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      _currentUser = user;
+      // Mostrar avatar
+      const avatar = document.getElementById('userAvatar');
+      if (avatar && user.photoURL) { avatar.src = user.photoURL; avatar.style.display = 'block'; }
+      document.getElementById('userMenuName').textContent = user.displayName || 'Usuario';
+      document.getElementById('userMenuEmail').textContent = user.email || '';
+
+      // Cargar datos desde Firebase
+      let loaded = null;
+      try { loaded = await loadStateFromFirebase(user.uid); } catch(e) {}
+
+      if (loaded) {
+        // Usuario existente — normalizar y arrancar
+        state = loaded;
+        if (!state.categories || typeof state.categories !== 'object' || Array.isArray(state.categories))
+          state.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
+        GROUP_KEYS.forEach(k => { if (!state.categories[k]) state.categories[k] = [...(INITIAL_CATEGORIES[k] || [])]; });
+        if (!state.rules) state.rules = { ...INITIAL_RULES };
+        if (!state.personRules) state.personRules = {};
+        if (!state.persons || !state.persons.length) state.persons = ['YO', 'OTRO'];
+        if (!state.months) state.months = {};
+        if (!state.savings) state.savings = { plan: {}, goals: [], payments: {} };
+        if (!state.savings.payments) state.savings.payments = {};
+        if (state.version !== 2) migrateFromV1(state);
+        document.getElementById('loginScreen').style.display = 'none';
+        startApp();
+      } else {
+        // Usuario nuevo — mostrar wizard
+        document.getElementById('loginScreen').style.display = 'none';
+        document.getElementById('wizardScreen').classList.add('visible');
+      }
+    } else {
+      _currentUser = null;
+      document.getElementById('loginScreen').style.display = 'flex';
+      document.getElementById('mainApp').style.display = 'none';
+    }
+  });
+}
+
+if (window._fbReady) {
+  onFbReady();
+} else {
+  window.addEventListener('fbReady', onFbReady);
+}
+
+// Estado inicial vacío mientras se carga Firebase
+let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+state.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
+state.rules = { ...INITIAL_RULES };
+
 
 /* ============================================================
    CATEGORÍA: parseCategory("CASA > Supermercado") → {group, sub}
@@ -5138,27 +5551,6 @@ function resetAll() {
 /* ============================================================
    THEME
    ============================================================ */
-function setTheme(theme) {
-  document.body.setAttribute('data-theme', theme);
-  localStorage.setItem(THEME_KEY, theme);
-  // Update icon
-  const icon = document.getElementById('themeIcon');
-  if (theme === 'dark') {
-    icon.innerHTML = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>';
-  } else {
-    icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
-  }
-  // Re-render charts (necesario porque los colores se calculan en runtime)
-  if (Object.keys(state.months).length > 0) {
-    renderMonth();
-    renderTrends();
-  }
-}
-function toggleTheme() {
-  const cur = document.body.getAttribute('data-theme') || 'dark';
-  setTheme(cur === 'dark' ? 'light' : 'dark');
-}
-
 /* ============================================================
    TOAST + DRAG&DROP + TABS + INIT
    ============================================================ */
@@ -5250,11 +5642,30 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Init theme
-const savedTheme = localStorage.getItem(THEME_KEY) || 'dark';
-setTheme(savedTheme);
+function setTheme(theme) {
+  document.body.setAttribute('data-theme', theme);
+  const icon = document.getElementById('themeIcon');
+  const iconM = document.getElementById('themeIconMobile');
+  if (theme === 'light') {
+    if (icon) icon.innerHTML = '<path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42M12 5a7 7 0 1 0 0 14A7 7 0 0 0 12 5z"/>';
+    if (iconM) iconM.innerHTML = '<path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42M12 5a7 7 0 1 0 0 14A7 7 0 0 0 12 5z"/>';
+  } else {
+    if (icon) icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+    if (iconM) iconM.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  }
+}
 
-renderAll();
+function toggleTheme() {
+  const current = document.body.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  setTheme(next);
+  state.theme = next;
+  saveState();
+}
+
+// Init theme inmediato (antes de login)
+setTheme('dark');
+
 </script>
 </body>
 </html>
