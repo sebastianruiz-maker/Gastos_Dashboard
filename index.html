@@ -1834,6 +1834,7 @@ window.dispatchEvent(new Event('fbReady'));
     background: var(--bg);
     display: flex; align-items: center; justify-content: center;
     flex-direction: column; gap: 0;
+    /* Siempre visible hasta que Firebase confirme el estado */
   }
   .login-card {
     background: var(--bg-2);
@@ -3077,7 +3078,6 @@ let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
 state.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
 state.rules = { ...INITIAL_RULES };
 
-
 /* ============================================================
    CATEGORÍA: parseCategory("CASA > Supermercado") → {group, sub}
    ============================================================ */
@@ -3410,6 +3410,8 @@ let personChartInst, trendChartInst, trendCatChartInst, trendPersonChartInst;
 let drilldownGroup = null;  // si está activo, filtra la tabla y charts
 
 function renderAll() {
+  // No renderizar si aún no hay usuario autenticado
+  if (!_currentUser) return;
   const monthIds = Object.keys(state.months);
   const hasData = monthIds.length > 0;
 
@@ -5620,8 +5622,6 @@ function syncNavBadge() {
   navBadge.textContent = count;
 }
 
-// Patch renderUncategorized para sincronizar badge mobile
-const _origRenderAll = renderAll;
 // Observar cambios en uncatBadge con MutationObserver
 const _badgeObserver = new MutationObserver(syncNavBadge);
 document.addEventListener('DOMContentLoaded', () => {
