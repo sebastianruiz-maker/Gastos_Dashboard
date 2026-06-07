@@ -2136,14 +2136,6 @@
     <div class="kpi-grid" id="kpis"></div>
 
     <!-- Grupos: vista macro -->
-    <div id="groupsSection" style="display:none">
-      <div class="card-h" style="margin: 24px 0 12px 0">
-        <div class="card-title">Por grupo</div>
-        <div class="card-sub" id="groupsSub">Click para filtrar</div>
-      </div>
-      <div class="groups-grid" id="groupsGrid"></div>
-    </div>
-
     <!-- Drilldown banner -->
     <div id="drilldownBanner" style="display:none"></div>
 
@@ -2368,6 +2360,12 @@
   <div class="modal">
     <h3>Categorizar movimiento</h3>
     <div class="modal-desc" id="catModalDesc">—</div>
+
+    <!-- Historial de este comercio -->
+    <div id="catHistorySection" style="display:none; margin-bottom:12px">
+      <div class="modal-section-title" style="color:var(--green)">📋 Antes lo categoricé como</div>
+      <div class="cat-options" id="catHistoryList"></div>
+    </div>
 
     <div class="modal-section-title" id="suggestedTitle" style="display:none">Sugerencias</div>
     <div class="cat-options" id="suggestedCats" style="margin-bottom:14px"></div>
@@ -3537,7 +3535,6 @@ function renderAll() {
 
   document.getElementById('emptyState').style.display = hasData ? 'none' : 'block';
   document.getElementById('monthToolbar').style.display = hasData ? 'flex' : 'none';
-  document.getElementById('groupsSection').style.display = hasData ? 'block' : 'none';
   document.getElementById('chartsRow').style.display = hasData ? 'grid' : 'none';
   document.getElementById('chartsRow2').style.display = hasData ? 'grid' : 'none';
   document.getElementById('tableSection').style.display = hasData ? 'block' : 'none';
@@ -3615,7 +3612,6 @@ function renderMonth() {
   }
 
   renderKPIs(month, movs);
-  renderGroups(movs);
   renderDrilldownBanner(movs);
 
   let tableMovs = movs;
@@ -3720,7 +3716,7 @@ function renderGroups(movs) {
     .map(g => ({ key: g, total: groupTotals[g], color: groupColor(g), emoji: GROUPS[g].emoji, label: GROUPS[g].label }));
 
   if (uncatCount > 0) {
-    items.push({ key: '__UNCAT__', total: uncatTotal, color: 'var(--yellow)', emoji: '❓', label: 'Sin categorizar' });
+    // No mostrar en la grilla — ya tiene su propio tab
   }
 
   // Ordenar por total descendente
@@ -3784,8 +3780,27 @@ function renderDrilldownBanner(movs) {
   </div>`;
 }
 
+const _collapsedGroups = new Set();
+
+function toggleGroupCollapse(grp) {
+  if (_collapsedGroups.has(grp)) _collapsedGroups.delete(grp);
+  else _collapsedGroups.add(grp);
+  const movs = getCurrentFilteredMovs();
+  if (movs) renderCatChart(movs);
+}
+
+function getCurrentFilteredMovs() {
+  const month = getCurrentMonth();
+  if (!month) return null;
+  const personFilter = document.getElementById('personFilter')?.value || 'all';
+  const search = document.getElementById('searchInput')?.value.trim().toUpperCase() || '';
+  let movs = month.movements;
+  if (personFilter !== 'all') movs = movs.filter(m => m.personSplit ? Object.keys(m.personSplit).includes(personFilter) : m.person === personFilter);
+  if (search) movs = movs.filter(m => (m.description||'').toUpperCase().includes(search)||(m.category||'').toUpperCase().includes(search));
+  return movs;
+}
+
 function renderCatChart(movs) {
-  // Agregar por subcategoría
   const agg = {};
   movs.forEach(m => {
     if (!m.category || isAdjustment(m.category)) return;
@@ -3795,9 +3810,7 @@ function renderCatChart(movs) {
   const data = Object.entries(agg).sort((a,b) => b[1]-a[1]);
   const total = data.reduce((s, [_, v]) => s + v, 0);
 
-  document.getElementById('catChartTitle').textContent = drilldownGroup && drilldownGroup !== '__UNCAT__'
-    ? `${GROUPS[drilldownGroup].emoji} ${GROUPS[drilldownGroup].label}: detalle`
-    : 'Detalle por subcategoría';
+  document.getElementById('catChartTitle').textContent = 'Detalle por subcategoría';
   document.getElementById('catChartSub').textContent = fmtCLP(total);
 
   const wrap = document.getElementById('catTableWrap');
@@ -3806,7 +3819,6 @@ function renderCatChart(movs) {
     return;
   }
 
-  // Agrupar por grupo para encabezados de sección
   const byGroup = {};
   data.forEach(([cat, val]) => {
     const p = parseCategory(cat);
@@ -3820,19 +3832,18 @@ function renderCatChart(movs) {
   const rowsHtml = Object.entries(byGroup).map(([grp, items]) => {
     const grpTotal = items.reduce((s, r) => s + r.val, 0);
     const grpPct = total > 0 ? (grpTotal / total * 100) : 0;
-    const grpInfo = GROUPS[grp] || { emoji: '—', label: grp, color: 'var(--text-3)' };
+    const grpInfo = GROUPS[grp] || { emoji: '—', label: grp };
     const grpColor = grp !== '__NONE__' ? groupColor(grp) : 'var(--text-3)';
+    const isCollapsed = _collapsedGroups.has(grp);
 
-    const subRows = items.map(({ cat, val, sub }) => {
+    const subRows = isCollapsed ? '' : items.map(({ val, sub }) => {
       const pct = total > 0 ? (val / total * 100) : 0;
       const barW = maxVal > 0 ? (val / maxVal * 100) : 0;
       return `<tr style="border-bottom:1px solid var(--line)">
         <td style="padding:9px 14px; font-size:12px; padding-left:36px; color:var(--text-2)">${sub}</td>
         <td style="padding:9px 14px; width:40%">
-          <div style="display:flex; align-items:center; gap:8px">
-            <div style="flex:1; height:6px; background:var(--bg-4); border-radius:3px; overflow:hidden">
-              <div style="width:${barW.toFixed(1)}%; height:100%; background:${grpColor}; border-radius:3px; opacity:0.7"></div>
-            </div>
+          <div style="flex:1; height:6px; background:var(--bg-4); border-radius:3px; overflow:hidden">
+            <div style="width:${barW.toFixed(1)}%; height:100%; background:${grpColor}; border-radius:3px; opacity:0.7"></div>
           </div>
         </td>
         <td style="padding:9px 14px; text-align:right; font-family:var(--mono); font-size:12px; white-space:nowrap; font-weight:500">${fmtCLP(Math.round(val))}</td>
@@ -3841,17 +3852,20 @@ function renderCatChart(movs) {
     }).join('');
 
     return `
-      <tr style="background:var(--bg-3); border-bottom:1px solid var(--line)">
-        <td style="padding:8px 14px; font-weight:600; font-size:12px; font-family:var(--mono); text-transform:uppercase; letter-spacing:0.08em; color:${grpColor}">
-          <span style="margin-right:6px">${grpInfo.emoji}</span>${grpInfo.label}
+      <tr style="background:var(--bg-3); border-bottom:1px solid var(--line); cursor:pointer; user-select:none"
+          onclick="toggleGroupCollapse('${grp}')" title="${isCollapsed ? 'Expandir' : 'Colapsar'}">
+        <td style="padding:10px 14px; font-weight:600; font-size:12px; font-family:var(--mono); text-transform:uppercase; letter-spacing:0.08em; color:${grpColor}; display:flex; align-items:center; gap:8px">
+          <span style="display:inline-block; width:14px; font-size:10px; opacity:0.6; flex-shrink:0">${isCollapsed ? '▶' : '▼'}</span>
+          <span>${grpInfo.emoji}</span>
+          <span>${grpInfo.label}</span>
         </td>
-        <td style="padding:8px 14px">
+        <td style="padding:10px 14px">
           <div style="height:4px; background:var(--bg-4); border-radius:2px; overflow:hidden">
             <div style="width:${grpPct.toFixed(1)}%; height:100%; background:${grpColor}; border-radius:2px"></div>
           </div>
         </td>
-        <td style="padding:8px 14px; text-align:right; font-family:var(--serif); font-size:15px; font-weight:500; white-space:nowrap">${fmtCLP(Math.round(grpTotal))}</td>
-        <td style="padding:8px 14px; text-align:right; font-family:var(--mono); font-size:11px; color:var(--accent); font-weight:600; white-space:nowrap">${grpPct.toFixed(1)}%</td>
+        <td style="padding:10px 14px; text-align:right; font-family:var(--serif); font-size:15px; font-weight:500; white-space:nowrap">${fmtCLP(Math.round(grpTotal))}</td>
+        <td style="padding:10px 14px; text-align:right; font-family:var(--mono); font-size:11px; color:var(--accent); font-weight:600; white-space:nowrap">${grpPct.toFixed(1)}%</td>
       </tr>
       ${subRows}`;
   }).join('');
@@ -3876,6 +3890,7 @@ function renderCatChart(movs) {
         </tr>
       </tfoot>
     </table>`;
+}
 }
 
 /**
@@ -4529,7 +4544,27 @@ function openCatModal(movId, monthId) {
   const noteSuffix = mov.userNote ? ` <em style="color:var(--accent)">(${escapeHtml(mov.userNote)})</em>` : '';
   document.getElementById('catModalDesc').innerHTML = escapeHtml(fullDesc) + noteSuffix;
 
-  // Sugerencias
+  // Historial de este comercio
+  const key = extractMerchantKey(fullDesc);
+  const history = key ? getCommerceHistory(key) : [];
+  const histContainer = document.getElementById('catHistorySection');
+  if (history.length) {
+    histContainer.style.display = 'block';
+    document.getElementById('catHistoryList').innerHTML = history.map(h => {
+      const p = parseCategory(h.cat);
+      const grp = p ? GROUPS[p.group] : null;
+      const safe = h.cat.replace(/'/g,"\\'");
+      return `<button class="cat-option suggested" onclick="assignCat('${safe}')" style="display:inline-flex; align-items:center; gap:6px">
+        ${grp ? grp.emoji : ''}
+        <span>${p ? p.sub : h.cat}</span>
+        <span style="opacity:0.5; font-size:10px; font-family:var(--mono)">${h.count}x</span>
+      </button>`;
+    }).join('');
+  } else {
+    histContainer.style.display = 'none';
+  }
+
+  // Sugerencias por tokens
   const sug = computeSuggestions(mov.descriptionRaw || mov.description, mov.userNote);
   const sugContainer = document.getElementById('suggestedCats');
   const sugTitle = document.getElementById('suggestedTitle');
@@ -4556,7 +4591,6 @@ function openCatModal(movId, monthId) {
     </div>`;
   }).join('');
 
-  // Select de grupos para crear nueva
   document.getElementById('newCatGroup').innerHTML = GROUP_KEYS.map(g =>
     `<option value="${g}">${GROUPS[g].emoji} ${GROUPS[g].label}</option>`
   ).join('');
@@ -4684,38 +4718,139 @@ function renderUncategorized() {
     groups[k].push({ month, mov });
   });
 
+  // Inicializar notas de grupo si no existe
+  if (!state.groupNotes) state.groupNotes = {};
+
   const list = document.getElementById('uncatList');
   if (all.length === 0) {
     list.innerHTML = '<div style="color:var(--text-3); padding:30px; text-align:center; font-style:italic">¡Todo categorizado! 🎉</div>';
     return;
   }
+
   list.innerHTML = Object.entries(groups).sort((a,b) => b[1].length - a[1].length).map(([key, items]) => {
     const total = items.reduce((s,x) => s + x.mov.amount, 0);
+    const groupNote = state.groupNotes[key] || '';
+    const firstMov = items[0];
+
+    // Historial: buscar categorías previas de este comercio en movimientos YA categorizados
+    const history = getCommerceHistory(key);
+
     return `
       <div class="card" style="margin-bottom:10px; padding:14px 16px">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
-          <div>
+        <!-- Header del grupo -->
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; gap:12px">
+          <div style="flex:1; min-width:0">
             <div style="font-weight:500; font-size:14px">${escapeHtml(key)}</div>
             <div style="color:var(--text-3); font-size:11px; font-family:var(--mono); margin-top:2px">
               ${items.length} ocurrencia(s) · Total ${fmtCLP(total)}
             </div>
-          </div>
-          <button class="primary" onclick="openCatModal('${items[0].mov.id}','${items[0].month.id}')">Categorizar</button>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:4px">
-          ${items.map(({ month, mov }) => `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:var(--bg-3); border-radius:6px; font-size:12px">
-              <div style="flex:1; overflow:hidden">
-                <span style="color:var(--text-3); font-family:var(--mono); margin-right:8px">${month.label} ${fmtDate(mov.date)}</span>
-                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${escapeHtml(mov.description)}${mov.userNote ? ` <em style="color:var(--accent)">(${escapeHtml(mov.userNote)})</em>` : ''}</span>
-              </div>
-              <div style="font-family:var(--mono); margin-right:10px">${fmtCLP(mov.amount)}</div>
+            <!-- Nota grupal -->
+            <div style="margin-top:8px; display:flex; align-items:center; gap:6px">
+              <input type="text"
+                class="group-note-input"
+                placeholder="Nota grupal (ej: pagos mensuales de gimnasio)…"
+                value="${escapeHtml(groupNote)}"
+                onchange="saveGroupNote('${escapeHtml(key).replace(/'/g,"\\'")}', this.value)"
+                style="flex:1; font-size:12px; padding:5px 10px; border-radius:6px; background:var(--bg-3); border:1px solid var(--line-2); color:var(--text); font-family:var(--sans)">
             </div>
-          `).join('')}
+            <!-- Historial de categorías previas -->
+            ${history.length ? `
+            <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:5px; align-items:center">
+              <span style="font-family:var(--mono); font-size:9px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.1em">Antes:</span>
+              ${history.map(h => {
+                const p = parseCategory(h.cat);
+                const safe = h.cat.replace(/'/g,"\\'");
+                const grp = p ? GROUPS[p.group] : null;
+                return `<button class="ghost" style="padding:3px 8px; font-size:11px; border-radius:6px; gap:4px"
+                  onclick="applyHistoryCat('${escapeHtml(key).replace(/'/g,"\\'")}','${safe}')"
+                  title="Aplicar a todos · usado ${h.count}x">
+                  ${grp ? grp.emoji : ''}${p ? p.sub : h.cat}
+                  <span style="opacity:0.5; font-size:9px">${h.count}x</span>
+                </button>`;
+              }).join('')}
+            </div>` : ''}
+          </div>
+          <button class="primary" onclick="openCatModal('${firstMov.mov.id}','${firstMov.month.id}')">Categorizar</button>
+        </div>
+
+        <!-- Filas individuales -->
+        <div style="display:flex; flex-direction:column; gap:4px">
+          ${items.map(({ month, mov }) => {
+            const noteKey = `indiv_${escapeHtml(key).replace(/'/g,"\\'")}`;
+            const indivNote = mov.userNote || '';
+            const groupNoteCombined = groupNote ? `[${escapeHtml(groupNote)}]` : '';
+            return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:var(--bg-3); border-radius:6px; font-size:12px; gap:8px">
+              <div style="min-width:0; flex:1">
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+                  <span style="color:var(--text-3); font-family:var(--mono); white-space:nowrap">${month.label} ${fmtDate(mov.date)}</span>
+                  <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${escapeHtml(mov.description)}</span>
+                  ${mov.userNote ? `<em style="color:var(--accent); font-size:11px">(${escapeHtml(mov.userNote)})</em>` : ''}
+                </div>
+                ${groupNote ? `<div style="font-size:10px; color:var(--text-3); margin-top:2px; font-style:italic">📌 ${escapeHtml(groupNote)}</div>` : ''}
+              </div>
+              <div style="display:flex; align-items:center; gap:6px; flex-shrink:0">
+                <div style="font-family:var(--mono)">${fmtCLP(mov.amount)}</div>
+                <button class="ghost icon-btn" title="Nota individual" style="width:24px;height:22px;padding:0;font-size:13px"
+                  onclick="editIndivNote('${month.id}','${mov.id}')">
+                  ${mov.comment ? '📝' : '✎'}
+                </button>
+              </div>
+            </div>`;
+          }).join('')}
         </div>
       </div>
     `;
   }).join('');
+}
+
+function getCommerceHistory(key) {
+  // Buscar en movimientos categorizados cuántas veces se usó cada categoría para este comercio
+  const tally = {};
+  Object.values(state.months).forEach(m => {
+    m.movements.forEach(mv => {
+      if (!mv.category || isAdjustment(mv.category)) return;
+      const k = extractMerchantKey(mv.descriptionRaw || mv.description);
+      if (k === key) {
+        tally[mv.category] = (tally[mv.category] || 0) + 1;
+      }
+    });
+  });
+  return Object.entries(tally).sort((a,b) => b[1]-a[1]).slice(0,3).map(([cat,count]) => ({ cat, count }));
+}
+
+function saveGroupNote(key, value) {
+  if (!state.groupNotes) state.groupNotes = {};
+  state.groupNotes[key] = value.trim();
+  saveState();
+  // Actualizar nota en fila sin re-renderizar todo
+  renderUncategorized();
+}
+
+function applyHistoryCat(key, cat) {
+  // Aplicar categoría a TODOS los movimientos sin categorizar de este grupo
+  let count = 0;
+  Object.values(state.months).forEach(m => {
+    m.movements.forEach(mv => {
+      if (mv.category) return;
+      const k = extractMerchantKey(mv.descriptionRaw || mv.description);
+      if (k === key) {
+        mv.category = cat;
+        count++;
+      }
+    });
+  });
+  // Guardar regla
+  if (!state.rules) state.rules = {};
+  state.rules[key] = cat;
+  saveState();
+  renderAll();
+  toast(`✓ Aplicado a ${count} movimiento(s)`);
+}
+
+function editIndivNote(monthId, movId) {
+  // Reutilizar el modal de comentario existente
+  editComment(monthId, movId);
 }
 
 /* ============================================================
