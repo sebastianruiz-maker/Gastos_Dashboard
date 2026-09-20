@@ -2380,6 +2380,13 @@
       <button class="primary" onclick="createCatAndAssign()">Crear y asignar</button>
     </div>
 
+    <div class="modal-section-title" style="margin-top:14px">Crear nuevo grupo</div>
+    <div class="new-cat-row">
+      <input type="text" id="newGroupEmoji" placeholder="🏷️" maxlength="2" style="width:52px; text-align:center; font-size:18px">
+      <input type="text" id="newGroupName" placeholder="Nombre del grupo (ej: Mascotas)" oninput="this.value = this.value.replace(/^./, c=>c.toUpperCase())">
+      <button class="primary" onclick="createNewGroup()">+ Grupo</button>
+    </div>
+
     <div class="checkbox-row">
       <input type="checkbox" id="learnRule" checked>
       <label for="learnRule">Aprender regla: aplicar esta categoría a futuros movimientos similares</label>
@@ -2605,7 +2612,7 @@
 /* ============================================================
    TAXONOMÍA: Grupos y subcategorías
    ============================================================ */
-const GROUPS = {
+const BASE_GROUPS = {
   CASA:       { emoji: '🏠', color: 'var(--g-casa)',       label: 'Casa' },
   AUTO:       { emoji: '🚗', color: 'var(--g-auto)',       label: 'Auto' },
   COMIDA:     { emoji: '🍔', color: 'var(--g-comida)',     label: 'Comida' },
@@ -2616,7 +2623,36 @@ const GROUPS = {
   FINANZAS:   { emoji: '💳', color: 'var(--g-finanzas)',   label: 'Finanzas' },
   AJUSTES:    { emoji: '↩️', color: 'var(--g-ajustes)',    label: 'Ajustes' }
 };
-const GROUP_KEYS = Object.keys(GROUPS);
+
+// Paleta de colores para grupos custom (rotan)
+const CUSTOM_GROUP_COLORS = ['#c17e9e', '#7ea6c1', '#9ec17e', '#c1a67e', '#a67ec1', '#7ec1b3', '#c1897e', '#8a9ec1'];
+
+// GROUPS combina los base con los custom del usuario (getter dinámico)
+const GROUPS = new Proxy({}, {
+  get(_, key) {
+    if (BASE_GROUPS[key]) return BASE_GROUPS[key];
+    const custom = (typeof state !== 'undefined' && state.customGroups) ? state.customGroups[key] : null;
+    return custom || undefined;
+  },
+  has(_, key) {
+    return !!BASE_GROUPS[key] || !!(typeof state !== 'undefined' && state.customGroups && state.customGroups[key]);
+  },
+  ownKeys() {
+    const custom = (typeof state !== 'undefined' && state.customGroups) ? Object.keys(state.customGroups) : [];
+    return [...Object.keys(BASE_GROUPS), ...custom];
+  },
+  getOwnPropertyDescriptor() {
+    return { enumerable: true, configurable: true };
+  }
+});
+
+// GROUP_KEYS ahora es una función que devuelve base + custom
+function getGroupKeys() {
+  const custom = (typeof state !== 'undefined' && state.customGroups) ? Object.keys(state.customGroups) : [];
+  return [...Object.keys(BASE_GROUPS), ...custom];
+}
+// Compat: GROUP_KEYS como getter
+Object.defineProperty(window, 'GROUP_KEYS', { get: getGroupKeys });
 
 const INITIAL_CATEGORIES = {
   CASA: ['Supermercado', 'Servicios', 'Arreglos', 'Decoración'],
@@ -2863,17 +2899,48 @@ let _saveTimeout = null;
 
 async function saveState() {
   if (!_currentUser) return;
-  // Debounce: esperar 800ms de inactividad antes de guardar
+  // Indicador visual de "guardando"
+  showSaveStatus('saving');
   clearTimeout(_saveTimeout);
   _saveTimeout = setTimeout(async () => {
     try {
       const { db, doc, setDoc } = window._fb;
       await setDoc(doc(db, 'users', _currentUser.uid), { state: JSON.stringify(state), updatedAt: new Date().toISOString() });
+      showSaveStatus('saved');
     } catch (e) {
       console.error('Error guardando en Firebase:', e);
+      showSaveStatus('error');
       toast('⚠ Error guardando datos');
     }
-  }, 800);
+  }, 400);
+}
+
+function showSaveStatus(status) {
+  let el = document.getElementById('saveStatus');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'saveStatus';
+    el.style.cssText = 'position:fixed; bottom:16px; left:16px; z-index:500; font-family:var(--mono); font-size:11px; padding:6px 12px; border-radius:8px; transition:opacity 0.3s; pointer-events:none;';
+    document.body.appendChild(el);
+  }
+  if (status === 'saving') {
+    el.textContent = '⏳ Guardando…';
+    el.style.background = 'var(--bg-3)';
+    el.style.color = 'var(--text-3)';
+    el.style.opacity = '1';
+  } else if (status === 'saved') {
+    el.textContent = '✓ Guardado';
+    el.style.background = 'rgba(110,199,154,0.15)';
+    el.style.color = 'var(--green)';
+    el.style.opacity = '1';
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => { el.style.opacity = '0'; }, 1500);
+  } else if (status === 'error') {
+    el.textContent = '⚠ Error al guardar';
+    el.style.background = 'rgba(232,119,102,0.15)';
+    el.style.color = 'var(--red)';
+    el.style.opacity = '1';
+  }
 }
 
 async function loadStateFromFirebase(uid) {
@@ -2890,6 +2957,7 @@ function buildFreshState(wizardData) {
   const s = JSON.parse(JSON.stringify(DEFAULT_STATE));
   s.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
   s.rules = { ...INITIAL_RULES };
+  s.customGroups = {};
   s.persons = wizardData.persons || ['YO', 'OTRO'];
   s.dashName = wizardData.dashName || 'Mi Dashboard';
   s.currency = wizardData.currency || 'CLP';
@@ -3014,9 +3082,10 @@ function onFbReady() {
       if (loaded) {
         // Usuario existente — normalizar y arrancar
         state = loaded;
+        if (!state.customGroups) state.customGroups = {};
         if (!state.categories || typeof state.categories !== 'object' || Array.isArray(state.categories))
           state.categories = JSON.parse(JSON.stringify(INITIAL_CATEGORIES));
-        GROUP_KEYS.forEach(k => { if (!state.categories[k]) state.categories[k] = [...(INITIAL_CATEGORIES[k] || [])]; });
+        getGroupKeys().forEach(k => { if (!state.categories[k]) state.categories[k] = [...(INITIAL_CATEGORIES[k] || [])]; });
         if (!state.rules) state.rules = { ...INITIAL_RULES };
         if (!state.personRules) state.personRules = {};
         if (!state.persons || !state.persons.length) state.persons = ['YO', 'OTRO'];
@@ -3496,6 +3565,10 @@ function formatCuotas(c) {
 }
 
 function groupColor(group) {
+  // Grupos custom guardan su color hex directamente
+  if (state.customGroups && state.customGroups[group]) {
+    return state.customGroups[group].color;
+  }
   return `var(--g-${(group || 'default').toLowerCase()})`;
 }
 function groupOf(catStr) {
@@ -4669,6 +4742,44 @@ function extractMerchantKey(desc) {
   const tokens = cleaned.split(/[\s\-*\/.,()]+/).filter(Boolean);
   if (tokens.length >= 2) return tokens.slice(0, 2).join(' ');
   return tokens[0] || '';
+}
+
+function createNewGroup() {
+  const emoji = document.getElementById('newGroupEmoji').value.trim() || '🏷️';
+  const name = document.getElementById('newGroupName').value.trim();
+  if (!name) { toast('Ingresa un nombre para el grupo'); return; }
+
+  // Key = nombre en mayúsculas sin espacios ni tildes
+  const key = name.toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]/g, '_');
+
+  if (BASE_GROUPS[key] || (state.customGroups && state.customGroups[key])) {
+    toast('Ya existe un grupo con ese nombre');
+    return;
+  }
+
+  if (!state.customGroups) state.customGroups = {};
+  // Asignar color de la paleta según cuántos custom hay
+  const idx = Object.keys(state.customGroups).length % CUSTOM_GROUP_COLORS.length;
+  state.customGroups[key] = {
+    emoji,
+    color: CUSTOM_GROUP_COLORS[idx],
+    label: name
+  };
+  if (!state.categories[key]) state.categories[key] = [];
+
+  saveState();
+
+  // Refrescar el select de grupos y limpiar inputs
+  document.getElementById('newCatGroup').innerHTML = getGroupKeys().map(g =>
+    `<option value="${g}">${GROUPS[g].emoji} ${GROUPS[g].label}</option>`
+  ).join('');
+  document.getElementById('newCatGroup').value = key;
+  document.getElementById('newGroupEmoji').value = '';
+  document.getElementById('newGroupName').value = '';
+  document.getElementById('newCatInput').focus();
+  toast(`✓ Grupo "${name}" creado — ahora agrega una subcategoría`);
 }
 
 function createCatAndAssign() {
