@@ -1714,10 +1714,33 @@
     .drilldown-header { padding: 10px 12px; }
     .drilldown-header .title { font-size: 15px; }
 
-    /* Modales — full width */
-    .modal { width: 95%; padding: 18px 16px; max-height: 92vh; border-radius: 12px; }
+    /* Modales — full width, acciones fijas abajo */
+    .modal {
+      width: 95%;
+      padding: 18px 16px 0;
+      max-height: 88vh;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+    }
     .modal h3 { font-size: 18px; }
     .split-row { grid-template-columns: 1fr 80px 90px; gap: 6px; }
+    /* El contenido scrollea, las acciones quedan fijas abajo */
+    .modal-actions {
+      position: sticky;
+      bottom: 0;
+      background: var(--bg-2);
+      margin: 0 -16px 0;
+      padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0));
+      border-top: 1px solid var(--line);
+      z-index: 5;
+    }
+    .modal-actions button {
+      flex: 1;
+      justify-content: center;
+      padding: 12px;
+      font-size: 14px;
+    }
 
     /* Metas compactas — 1 columna */
     .goals-compact-grid { grid-template-columns: 1fr; gap: 8px; }
