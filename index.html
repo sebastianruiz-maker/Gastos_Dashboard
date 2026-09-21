@@ -1800,6 +1800,86 @@
   @media (min-width: 641px) {
     .bottom-nav { display: none; }
   }
+
+  /* ── VISTA TARJETAS MOBILE ── */
+  #movsCards { display: none; }
+  @media (max-width: 640px) {
+    #movsTableCard { display: none; }
+    #movsCards { display: flex; flex-direction: column; gap: 8px; }
+    .mov-card {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .mov-card.uncategorized { border-left: 3px solid var(--yellow); }
+    .mov-card.excluded { opacity: 0.5; }
+    .mov-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .mov-card-desc {
+      flex: 1;
+      min-width: 0;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .mov-card-date {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-3);
+      margin-bottom: 3px;
+    }
+    .mov-card-note {
+      font-size: 11px;
+      color: var(--accent);
+      font-style: italic;
+      margin-top: 3px;
+    }
+    .mov-card-amount {
+      font-family: var(--serif);
+      font-size: 18px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .mov-card-amount.neg { color: var(--green); }
+    .mov-card-catrow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .mov-card-cuotas {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-2);
+      background: var(--bg-3);
+      padding: 3px 9px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .mov-card-persons {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .mov-card-persons .person-chip {
+      font-size: 12px;
+      padding: 7px 13px;
+      border-radius: 8px;
+    }
+    .mov-card-persons .split-btn {
+      width: 32px; height: 32px;
+      padding: 0; font-size: 15px;
+      display: flex; align-items: center; justify-content: center;
+    }
+  }
 </style>
 <style>
   /* ── LOGIN SCREEN ── */
@@ -2119,7 +2199,8 @@
       <div class="toolbar-group">
         <div class="divider"></div>
         <label>Buscar</label>
-        <input type="text" id="searchInput" placeholder="Comercio, comentario..." oninput="renderMonth()" style="width:220px">
+        <input type="text" id="searchInput" placeholder="Comercio, comentario..." oninput="onSearchInput()" style="width:220px">
+        <button class="ghost" id="globalSearchToggle" onclick="toggleGlobalSearch()" title="Buscar en todos los meses" style="padding:6px 10px; font-size:11px">🌐 Todos</button>
       </div>
       <div class="toolbar-group" style="margin-left:auto">
         <button class="ghost" onclick="exportCurrentMonth()">
@@ -2134,6 +2215,9 @@
 
     <!-- KPIs -->
     <div class="kpi-grid" id="kpis"></div>
+
+    <!-- Análisis financiero (aparece si hay sueldo definido) -->
+    <div id="financialAnalysis" style="display:none"></div>
 
     <!-- Grupos: vista macro -->
     <!-- Drilldown banner -->
@@ -2175,7 +2259,7 @@
       </div>
       <!-- Barra de totales por persona -->
       <div class="movs-totals-row" id="movsTotalsRow"></div>
-      <div class="table-card">
+      <div class="table-card" id="movsTableCard">
         <div class="table-wrap">
           <table class="movs">
             <thead>
@@ -2194,6 +2278,8 @@
           </table>
         </div>
       </div>
+      <!-- Vista de tarjetas (solo mobile) -->
+      <div id="movsCards"></div>
     </div>
   </div>
 
@@ -2508,6 +2594,13 @@
     <div class="modal-section-title">Categorías</div>
     <div style="font-size:12px; color:var(--text-2); margin-bottom:8px" id="catsCount">— grupos · — subcategorías</div>
     <button class="ghost" onclick="viewCats()">Ver/editar categorías</button>
+
+    <div class="modal-section-title">Ingreso mensual</div>
+    <div style="font-size:12px; color:var(--text-2); margin-bottom:8px">Tu sueldo base para calcular tasa de ahorro y peso de los gastos. Puedes ajustarlo por mes en la vista mensual.</div>
+    <div style="display:flex; align-items:center; gap:8px">
+      <span style="font-family:var(--mono); color:var(--text-3)">$</span>
+      <input type="number" id="baseSalaryInput" placeholder="Ej: 1500000" onchange="saveBaseSalary()" style="flex:1; padding:8px 12px; border-radius:8px; background:var(--bg-3); border:1px solid var(--line-2); color:var(--text)">
+    </div>
 
     <div class="modal-section-title">Reglas aprendidas</div>
     <div style="font-size:12px; color:var(--text-2); margin-bottom:8px" id="rulesCount">0 reglas de categoría · 0 reglas de split</div>
@@ -3475,6 +3568,24 @@ function autoCategorize(desc) {
   return best;
 }
 
+// Devuelve { cat, confident } — confident=false si el match fue por un fragmento corto/ambiguo
+function autoCategorizeWithConfidence(desc) {
+  const u = (desc || '').toUpperCase();
+  let best = null, bestLen = 0, bestFrag = '';
+  for (const [frag, cat] of Object.entries(state.rules)) {
+    if (u.includes(frag.toUpperCase()) && frag.length > bestLen) {
+      best = cat;
+      bestLen = frag.length;
+      bestFrag = frag;
+    }
+  }
+  if (!best) return null;
+  // Confianza: alta si el fragmento tiene ≥6 caracteres o ≥2 palabras
+  const words = bestFrag.trim().split(/\s+/).length;
+  const confident = bestFrag.length >= 6 || words >= 2;
+  return { cat: best, confident };
+}
+
 function autoAssignPerson(desc) {
   // Devuelve { person, split } o null si no hay regla
   if (!state.personRules) return null;
@@ -3490,14 +3601,21 @@ function autoAssignPerson(desc) {
 }
 
 function applyAutoCategorize(movs) {
-  let auto = 0, manual = 0;
+  let auto = 0, manual = 0, uncertain = 0;
   movs.forEach(m => {
     if (!m.category) {
-      const c = autoCategorize(m.descriptionRaw || m.description);
-      if (c) { m.category = c; auto++; }
-      else manual++;
+      const result = autoCategorizeWithConfidence(m.descriptionRaw || m.description);
+      if (result) {
+        m.category = result.cat;
+        auto++;
+        if (!result.confident) {
+          m.autoUncertain = true; // marca * para revisar
+          uncertain++;
+        }
+      } else {
+        manual++;
+      }
     }
-    // Aplicar person rule también
     const pRule = autoAssignPerson(m.descriptionRaw || m.description);
     if (pRule) {
       if (pRule.split) {
@@ -3509,7 +3627,7 @@ function applyAutoCategorize(movs) {
       }
     }
   });
-  return { auto, manual };
+  return { auto, manual, uncertain };
 }
 
 /* ============================================================
@@ -3518,7 +3636,7 @@ function applyAutoCategorize(movs) {
 async function handleFileLoad(event) {
   const files = Array.from(event.target.files);
   if (!files.length) return;
-  let totalAuto = 0, totalManual = 0, monthsLoaded = [];
+  let totalAuto = 0, totalManual = 0, totalUncertain = 0, monthsLoaded = [];
 
   for (const file of files) {
     try {
@@ -3526,6 +3644,7 @@ async function handleFileLoad(event) {
       const stats = applyAutoCategorize(monthData.movements);
       totalAuto += stats.auto;
       totalManual += stats.manual;
+      totalUncertain += stats.uncertain || 0;
       if (state.months[monthData.id]) {
         if (!confirm(`Ya tienes datos de ${monthData.label}. ¿Reemplazar?`)) continue;
       }
@@ -3540,7 +3659,9 @@ async function handleFileLoad(event) {
   saveState();
   event.target.value = '';
   if (monthsLoaded.length) {
-    toast(`✓ ${monthsLoaded.length} mes(es) · ${totalAuto} auto-categorizado(s) · ${totalManual} pendientes`);
+    let msg = `✓ ${monthsLoaded.length} mes(es) · ${totalAuto} auto-categorizado(s) · ${totalManual} pendientes`;
+    if (totalUncertain > 0) msg += ` · ${totalUncertain} marcados con * para revisar`;
+    toast(msg);
   }
   renderAll();
 }
@@ -3666,6 +3787,94 @@ function sortedMonths() {
     return (a.monthNum||0) - (b.monthNum||0);
   });
 }
+let _globalSearch = false;
+
+function toggleGlobalSearch() {
+  _globalSearch = !_globalSearch;
+  const btn = document.getElementById('globalSearchToggle');
+  btn.classList.toggle('active-toggle', _globalSearch);
+  btn.style.background = _globalSearch ? 'var(--accent)' : '';
+  btn.style.color = _globalSearch ? 'var(--bg)' : '';
+  onSearchInput();
+}
+
+function onSearchInput() {
+  const search = document.getElementById('searchInput').value.trim().toUpperCase();
+  if (_globalSearch && search) {
+    renderGlobalSearch(search);
+  } else {
+    // Ocultar resultados globales y volver a vista normal
+    const gr = document.getElementById('globalSearchResults');
+    if (gr) gr.style.display = 'none';
+    document.getElementById('tableSection').style.display = '';
+    document.getElementById('chartsRow').style.display = '';
+    renderMonth();
+  }
+}
+
+function renderGlobalSearch(search) {
+  // Buscar en TODOS los meses
+  const results = [];
+  Object.values(state.months).forEach(month => {
+    month.movements.forEach(m => {
+      const hit = (m.description || '').toUpperCase().includes(search) ||
+                  (m.userNote || '').toUpperCase().includes(search) ||
+                  (m.category || '').toUpperCase().includes(search) ||
+                  (m.comment || '').toUpperCase().includes(search);
+      if (hit) results.push({ month, mov: m });
+    });
+  });
+
+  // Ocultar tabla normal y charts
+  document.getElementById('tableSection').style.display = 'none';
+  document.getElementById('chartsRow').style.display = 'none';
+
+  let gr = document.getElementById('globalSearchResults');
+  if (!gr) {
+    gr = document.createElement('div');
+    gr.id = 'globalSearchResults';
+    document.getElementById('tableSection').parentNode.insertBefore(gr, document.getElementById('tableSection'));
+  }
+  gr.style.display = 'block';
+
+  const total = results.reduce((s, r) => s + (isReversa(r.mov) ? reversaAmount(r.mov) : r.mov.amount), 0);
+
+  // Ordenar por fecha desc
+  results.sort((a,b) => (b.mov.date||'').localeCompare(a.mov.date||''));
+
+  gr.innerHTML = `
+    <div class="card-h" style="margin: 20px 0 12px 0">
+      <div class="card-title">Búsqueda global: "${escapeHtml(search)}"</div>
+      <div class="card-sub">${results.length} resultado(s) · Total ${fmtCLP(total)}</div>
+    </div>
+    <div class="table-card">
+      <div class="table-wrap">
+        <table class="movs">
+          <thead><tr><th class="date">Mes</th><th class="date">Fecha</th><th>Descripción</th><th>Categoría</th><th>Persona</th><th class="amount">Monto</th></tr></thead>
+          <tbody>
+            ${results.map(({month, mov}) => {
+              const p = mov.category ? parseCategory(mov.category) : null;
+              const grp = p ? p.group : null;
+              const sub = p ? p.sub : 'Sin categorizar';
+              const grpColor = grp ? groupColor(grp) : 'var(--yellow)';
+              const grpEmoji = grp ? GROUPS[grp].emoji : '';
+              const displayAmt = isReversa(mov) ? reversaAmount(mov) : mov.amount;
+              return `<tr>
+                <td class="date" style="font-family:var(--mono); font-size:11px; color:var(--text-3)">${month.label}</td>
+                <td class="date">${mov.date ? fmtDate(mov.date) : '—'}</td>
+                <td class="desc"><div class="desc-main">${escapeHtml(mov.description)}</div>${mov.userNote ? `<div class="desc-note">${escapeHtml(mov.userNote)}</div>` : ''}</td>
+                <td><span class="cat-pill" onclick="openCatModal('${mov.id}','${month.id}')" style="border-color:${grpColor}40">${grp ? `<span class="group-emoji-bg" style="background:${grpColor}">${grpEmoji}</span>` : ''}<span class="sub-name">${sub}</span></span></td>
+                <td style="font-family:var(--mono); font-size:11px">${mov.personSplit ? Object.keys(mov.personSplit).join('/') : (mov.person || '—')}</td>
+                <td class="amount ${displayAmt<0?'neg':''}">${fmtCLP(displayAmt)}</td>
+              </tr>`;
+            }).join('') || '<tr><td colspan="6" style="text-align:center; padding:40px; color:var(--text-3)">Sin resultados</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function getCurrentMonth() {
   const id = document.getElementById('monthSelect').value;
   return state.months[id];
@@ -3698,6 +3907,7 @@ function renderMonth() {
   }
 
   renderKPIs(month, movs);
+  renderFinancialAnalysis(month);
   renderDrilldownBanner(movs);
 
   let tableMovs = movs;
@@ -3774,6 +3984,138 @@ function renderKPIs(month, movs) {
       ${k.sub ? `<div class="kpi-delta">${k.sub}</div>` : ''}
     </div>`;
   }).join('');
+}
+
+function getMonthIncome(month) {
+  // Ingreso del mes: override específico o sueldo base
+  if (month.income != null) return month.income;
+  return state.baseSalary || 0;
+}
+
+function renderFinancialAnalysis(month) {
+  const container = document.getElementById('financialAnalysis');
+  const income = getMonthIncome(month);
+
+  if (!state.baseSalary && month.income == null) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = 'block';
+
+  const gastos = month.movements
+    .filter(m => !m.excluded && !isAdjustment(m.category))
+    .reduce((s,m) => s + (isReversa(m) ? reversaAmount(m) : m.amount), 0);
+
+  const ahorro = income - gastos;
+  const tasaAhorro = income > 0 ? (ahorro / income * 100) : 0;
+  const pesoGasto = income > 0 ? (gastos / income * 100) : 0;
+
+  // Comparación con mes anterior
+  const months = sortedMonths();
+  const idx = months.findIndex(m => m.id === month.id);
+  const prevMonth = idx > 0 ? months[idx - 1] : null;
+  let varHtml = '';
+  if (prevMonth) {
+    const prevGastos = prevMonth.movements
+      .filter(m => !m.excluded && !isAdjustment(m.category))
+      .reduce((s,m) => s + (isReversa(m) ? reversaAmount(m) : m.amount), 0);
+    if (prevGastos > 0) {
+      const varPct = ((gastos - prevGastos) / prevGastos * 100);
+      const up = varPct > 0;
+      const color = up ? 'var(--red)' : 'var(--green)';
+      const arrow = up ? '▲' : '▼';
+      varHtml = `<span style="color:${color}; font-family:var(--mono); font-size:12px">${arrow} ${Math.abs(varPct).toFixed(1)}% vs ${prevMonth.label}</span>`;
+    }
+  }
+
+  // Proyección a fin de año (promedio de gasto mensual × meses restantes + acumulado)
+  const year = month.year || new Date().getFullYear();
+  const yearMonths = months.filter(m => (m.year || 0) === year);
+  const totalYearGastos = yearMonths.reduce((s, m) =>
+    s + m.movements.filter(mv => !mv.excluded && !isAdjustment(mv.category))
+      .reduce((ss,mv) => ss + (isReversa(mv) ? reversaAmount(mv) : mv.amount), 0), 0);
+  const avgMonthly = yearMonths.length > 0 ? totalYearGastos / yearMonths.length : gastos;
+  const projectedYear = avgMonthly * 12;
+  const totalYearIncome = yearMonths.reduce((s, m) => s + getMonthIncome(m), 0);
+  const avgIncome = yearMonths.length > 0 ? totalYearIncome / yearMonths.length : income;
+  const projectedYearIncome = avgIncome * 12;
+  const projectedSavings = projectedYearIncome - projectedYear;
+
+  const savingsColor = tasaAhorro >= 20 ? 'var(--green)' : tasaAhorro >= 0 ? 'var(--yellow)' : 'var(--red)';
+  const barW = Math.max(0, Math.min(100, pesoGasto));
+  const barColor = pesoGasto <= 70 ? 'var(--green)' : pesoGasto <= 100 ? 'var(--yellow)' : 'var(--red)';
+
+  container.innerHTML = `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-h">
+        <div class="card-title">Análisis financiero</div>
+        <div class="card-sub">
+          <button class="ghost" style="padding:3px 10px; font-size:11px" onclick="editMonthIncome('${month.id}')">
+            Ingreso: $${income.toLocaleString('es-CL')} ✎
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra ingreso vs gasto -->
+      <div style="margin:8px 0 16px">
+        <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px">
+          <span style="color:var(--text-2)">Gastaste <strong style="color:var(--text)">${fmtCLP(gastos)}</strong> de $${income.toLocaleString('es-CL')}</span>
+          <span style="font-family:var(--mono); color:${barColor}; font-weight:600">${pesoGasto.toFixed(0)}%</span>
+        </div>
+        <div style="height:10px; background:var(--bg-4); border-radius:5px; overflow:hidden">
+          <div style="width:${barW}%; height:100%; background:${barColor}; border-radius:5px; transition:width 0.4s"></div>
+        </div>
+      </div>
+
+      <!-- Métricas -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px">
+        <div style="background:var(--bg-3); border-radius:10px; padding:12px 14px">
+          <div style="font-family:var(--mono); font-size:10px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px">Ahorro del mes</div>
+          <div style="font-family:var(--serif); font-size:20px; font-weight:600; color:${ahorro >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtCLP(ahorro)}</div>
+        </div>
+        <div style="background:var(--bg-3); border-radius:10px; padding:12px 14px">
+          <div style="font-family:var(--mono); font-size:10px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px">Tasa de ahorro</div>
+          <div style="font-family:var(--serif); font-size:20px; font-weight:600; color:${savingsColor}">${tasaAhorro.toFixed(1)}%</div>
+        </div>
+        <div style="background:var(--bg-3); border-radius:10px; padding:12px 14px">
+          <div style="font-family:var(--mono); font-size:10px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px">vs Mes anterior</div>
+          <div style="font-size:14px; padding-top:4px">${varHtml || '<span style="color:var(--text-3); font-size:12px">Sin comparación</span>'}</div>
+        </div>
+        <div style="background:var(--bg-3); border-radius:10px; padding:12px 14px">
+          <div style="font-family:var(--mono); font-size:10px; color:var(--text-3); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px">Proyección ahorro ${year}</div>
+          <div style="font-family:var(--serif); font-size:20px; font-weight:600; color:${projectedSavings >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtCLP(projectedSavings)}</div>
+        </div>
+      </div>
+      ${generateInsight(tasaAhorro, pesoGasto, ahorro, varHtml, month, prevMonth)}
+    </div>
+  `;
+}
+
+function generateInsight(tasaAhorro, pesoGasto, ahorro, varHtml, month, prevMonth) {
+  const insights = [];
+  if (tasaAhorro >= 30) insights.push('🎯 Excelente tasa de ahorro. Estás muy por encima del 20% recomendado.');
+  else if (tasaAhorro >= 20) insights.push('✅ Buena tasa de ahorro, por encima del 20% recomendado.');
+  else if (tasaAhorro >= 0) insights.push('⚠️ Tu tasa de ahorro está bajo el 20% recomendado. Revisa dónde puedes recortar.');
+  else insights.push('🔴 Gastaste más de lo que ingresaste este mes. Ojo con las cuotas.');
+
+  if (pesoGasto > 100) insights.push('Estás gastando más que tu ingreso — probablemente financiando con cuotas o ahorros.');
+
+  if (!insights.length) return '';
+  return `<div style="margin-top:14px; padding:12px 14px; background:var(--bg-3); border-radius:10px; border-left:3px solid var(--accent); font-size:13px; line-height:1.5; color:var(--text-2)">
+    ${insights.join(' ')}
+  </div>`;
+}
+
+function editMonthIncome(monthId) {
+  const month = state.months[monthId];
+  if (!month) return;
+  const current = month.income != null ? month.income : (state.baseSalary || '');
+  const v = prompt(`Ingreso para ${month.label}:\n(Deja vacío para usar el sueldo base de $${(state.baseSalary||0).toLocaleString('es-CL')})`, current);
+  if (v === null) return;
+  const num = parseInt(v);
+  month.income = (v.trim() === '' || isNaN(num)) ? null : num;
+  saveState();
+  renderMonth();
 }
 
 function renderGroups(movs) {
@@ -4327,9 +4669,9 @@ function renderMovsTable(movs, month) {
           ${noteHtml}
         </td>
         <td>
-          <span class="cat-pill ${isUncat ? 'uncategorized' : ''}" onclick="openCatModal('${m.id}','${month.id}')" style="${grp ? `border-color:${grpColor}40` : ''}">
+          <span class="cat-pill ${isUncat ? 'uncategorized' : ''}" onclick="openCatModal('${m.id}','${month.id}')" style="${grp ? `border-color:${grpColor}40` : ''}${m.autoUncertain ? '; border-style:dashed' : ''}">
             ${grp ? `<span class="group-emoji-bg" style="background:${grpColor}">${grpEmoji}</span>` : ''}
-            <span class="sub-name">${sub}</span>
+            <span class="sub-name">${sub}${m.autoUncertain ? ' <span style="color:var(--yellow)" title="Auto-categorizado, revisar">*</span>' : ''}</span>
           </span>
         </td>
         <td class="cuotas">${formatCuotas(m.cuotas)}</td>
@@ -4351,6 +4693,63 @@ function renderMovsTable(movs, month) {
       </tr>
     `;
   }).join('') || `<tr><td colspan="8" style="text-align:center; color:var(--text-3); padding:40px">Sin movimientos con esos filtros</td></tr>`;
+
+  // ── Vista tarjetas (mobile) ──
+  const cardsWrap = document.getElementById('movsCards');
+  if (cardsWrap) {
+    cardsWrap.innerHTML = sorted.map(m => {
+      const isUncat = !m.category;
+      const displayAmt = isReversa(m) ? reversaAmount(m) : m.amount;
+      const isNeg = displayAmt < 0;
+      const isExcl = !!m.excluded;
+      const p = m.category ? parseCategory(m.category) : null;
+      const grp = p ? p.group : null;
+      const grpEmoji = grp ? GROUPS[grp].emoji : '';
+      const sub = p ? p.sub : 'Sin categorizar';
+      const grpColor = grp ? groupColor(grp) : 'var(--yellow)';
+      const notes = [];
+      if (m.userNote) notes.push(m.userNote);
+      if (m.comment) notes.push(m.comment);
+      const noteHtml = notes.length ? `<div class="mov-card-note">${escapeHtml(notes.join(' · '))}</div>` : '';
+      const cuotasFmt = formatCuotas(m.cuotas);
+
+      return `
+        <div class="mov-card ${isUncat ? 'uncategorized' : ''} ${isExcl ? 'excluded' : ''}" data-id="${m.id}">
+          <div class="mov-card-top">
+            <div class="mov-card-desc">
+              <div class="mov-card-date">${m.date ? fmtDate(m.date) : '—'}</div>
+              ${escapeHtml(m.description)}
+              ${noteHtml}
+            </div>
+            <div class="mov-card-amount ${isNeg ? 'neg' : ''}">${fmtCLP(displayAmt)}</div>
+          </div>
+          <div class="mov-card-catrow">
+            <span class="cat-pill ${isUncat ? 'uncategorized' : ''}" onclick="openCatModal('${m.id}','${month.id}')" style="${grp ? `border-color:${grpColor}40` : ''}${m.autoUncertain ? '; border-style:dashed' : ''}">
+              ${grp ? `<span class="group-emoji-bg" style="background:${grpColor}">${grpEmoji}</span>` : ''}
+              <span class="sub-name">${sub}${m.autoUncertain ? ' <span style="color:var(--yellow)">*</span>' : ''}</span>
+            </span>
+            ${cuotasFmt && cuotasFmt !== '·' ? `<span class="mov-card-cuotas">${cuotasFmt} cuotas</span>` : ''}
+            <div style="margin-left:auto; display:flex; gap:4px">
+              <button class="ghost icon-btn" style="width:30px;height:30px" title="Comentario" onclick="editComment('${month.id}','${m.id}')">${m.comment ? '📝' : '✎'}</button>
+              <label class="ghost icon-btn" style="width:30px;height:30px; display:flex; align-items:center; justify-content:center" title="Excluir">
+                <input type="checkbox" class="excl-cb" ${isExcl ? 'checked' : ''} onchange="toggleExcluded('${month.id}','${m.id}')" style="margin:0">
+              </label>
+            </div>
+          </div>
+          <div class="mov-card-persons">
+            ${state.persons.map(pn => {
+              const splitPct = m.personSplit ? m.personSplit[pn] : null;
+              const isActive = m.personSplit ? !!splitPct : (m.person === pn);
+              const cls = m.personSplit ? (splitPct ? 'split' : '') : (isActive ? 'active' : '');
+              const label = (m.personSplit && splitPct) ? `${pn} ${splitPct}%` : pn;
+              return `<span class="person-chip ${cls}" onclick="setPerson('${month.id}','${m.id}','${pn}', event)">${label}</span>`;
+            }).join('')}
+            <button class="ghost icon-btn split-btn" title="Dividir" onclick="openSplitModal('${month.id}','${m.id}')">÷</button>
+          </div>
+        </div>
+      `;
+    }).join('') || `<div style="text-align:center; color:var(--text-3); padding:40px">Sin movimientos con esos filtros</div>`;
+  }
 
   // Renderizar barra de totales por persona
   renderMovsTotalsBar(month);
@@ -4721,6 +5120,7 @@ function assignCat(cat) {
   const mov = state.months[monthId].movements.find(m => m.id === movId);
   if (!mov) return;
   mov.category = cat;
+  delete mov.autoUncertain;
   if (document.getElementById('learnRule').checked) {
     const frag = extractMerchantKey(mov.descriptionRaw || mov.description);
     if (frag) {
@@ -5624,6 +6024,13 @@ function openSettings() {
   document.getElementById('rulesCount').textContent = `${Object.keys(state.rules).length} reglas de categoría · ${pCount} reglas de split`;
   const totalSubs = Object.values(state.categories).reduce((s,arr) => s + arr.length, 0);
   document.getElementById('catsCount').textContent = `${GROUP_KEYS.length} grupos · ${totalSubs} subcategorías`;
+  document.getElementById('baseSalaryInput').value = state.baseSalary || '';
+}
+function saveBaseSalary() {
+  const v = parseInt(document.getElementById('baseSalaryInput').value);
+  state.baseSalary = isNaN(v) ? null : v;
+  saveState();
+  renderMonth();
 }
 function closeSettings() {
   document.getElementById('settingsModal').classList.remove('visible');
